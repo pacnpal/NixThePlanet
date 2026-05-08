@@ -123,6 +123,89 @@ Using the `makeDarwinImage` function directly, you could increase the size of th
 }
 ```
 
+# Running on macOS hosts (Apple Silicon / Intel)
+
+The Windows/DOS apps (`msdos622`, `win30`, `wfwg311`, `win98`) run natively on
+`aarch64-darwin` and `x86_64-darwin` via the native macOS build of `dosbox-x` —
+no emulation layer is needed at runtime.
+
+The image-build derivations themselves still rely on Linux-only tooling
+(`xvfb-run`, `x11vnc`, expect-driven VNC + tesseract OCR), so the build is
+transparently offloaded to a Linux remote builder matching your host arch
+(`aarch64-darwin` → `aarch64-linux`, `x86_64-darwin` → `x86_64-linux`). The
+runScript that wraps the resulting `.img` is constructed natively for darwin.
+
+The `macos-ventura` output is **not** available on darwin hosts (it requires
+KVM, which is Linux-only).
+
+## Quick setup: linux-builder VM
+
+The simplest way to get a Linux builder on macOS is the
+`darwin.linux-builder` package from nixpkgs, which boots a tiny NixOS VM via
+QEMU+HVF (HVF-accelerated when the guest arch matches the host).
+
+1. Generate a builder keypair:
+
+   ```bash
+   mkdir -p ~/.linux-builder/keys
+   ssh-keygen -q -f ~/.linux-builder/keys/builder_ed25519 \
+     -t ed25519 -N "" -C 'builder@localhost'
+   ```
+
+2. Install the keys and configure nix to use the builder (one-time, sudo).
+   The repo ships a script that does all the system-level wiring:
+
+   ```bash
+   sudo bash scripts/setup-linux-builder.sh
+   ```
+
+   It installs `/etc/nix/builder_ed25519`, writes
+   `/etc/ssh/ssh_config.d/100-linux-builder.conf`, adds your user to
+   `trusted-users`, sets `builders =` and `builders-use-substitutes` in
+   `/etc/nix/nix.conf`, and reloads `nix-daemon`. The builder system is
+   matched to the host arch automatically (`aarch64-darwin` →
+   `aarch64-linux`, HVF-accelerated; `x86_64-darwin` → `x86_64-linux`).
+
+   > ⚠️ The script replaces any existing `builders =` and
+   > `builders-use-substitutes =` lines in `/etc/nix/nix.conf`. If you
+   > already have other remote builders configured, back up `nix.conf`
+   > first or use the `nix-darwin` alternative below instead. The script
+   > will warn (with a 5s pause) before overwriting a `builders` line
+   > unless that line is exactly a single `linux-builder` entry, and it
+   > always writes a timestamped `.bak` to the same directory. Lines
+   > with multiple builders (separated by `;`) trigger the warning even
+   > if one of them is the linux-builder entry.
+
+3. Boot the VM (keep this terminal open, or daemonize it via launchd /
+   `nix-darwin`'s `nix.linux-builder.enable = true`):
+
+   ```bash
+   cd ~/.linux-builder && KEYS=./keys nix run nixpkgs#darwin.linux-builder
+   ```
+
+   `KEYS` is read by the `darwin.linux-builder` package itself (not by
+   `nix run`): it points at the directory containing the SSH keypair
+   that was used in step 2, so the VM's `authorized_keys` matches the
+   host's `/etc/nix/builder_ed25519`. Without it, the VM generates a
+   throwaway keypair on each boot and your nix-daemon's identity won't
+   be authorized.
+
+4. Run any of the apps — the image builds on the VM, dosbox-x runs natively:
+
+   ```bash
+   # from a checkout of this repo:
+   nix run .#win98
+   # or from anywhere, against the canonical flake:
+   nix run github:matthewcroughan/NixThePlanet#win98
+   ```
+
+If you use `nix-darwin`, the cleaner alternative is:
+
+```nix
+nix.linux-builder.enable = true;
+nix.settings.trusted-users = [ "@admin" ];
+```
+
 # Windows/DOS
 
 Each of the outputs in this flake have their own image builders and `runScript`.
