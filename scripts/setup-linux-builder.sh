@@ -40,8 +40,15 @@ fi
 # `dscl . -read` prints `NFSHomeDirectory: /Users/foo`; strip the leading
 # `NFSHomeDirectory:` label and surrounding whitespace rather than
 # `awk '{print $2}'` so paths with spaces survive intact.
-USER_HOME=$(dscl . -read "/Users/$USER_NAME" NFSHomeDirectory 2>/dev/null \
-  | sed -E 's/^NFSHomeDirectory:[[:space:]]*//')
+#
+# We capture dscl's exit status explicitly. Under `set -euo pipefail`, a
+# `dscl ... | sed ...` pipe whose dscl half fails (e.g. unknown user) would
+# exit the script before our friendly error check runs.
+if ! DSCL_OUT=$(dscl . -read "/Users/$USER_NAME" NFSHomeDirectory 2>/dev/null); then
+  echo "Could not resolve home directory for user '$USER_NAME' via dscl (user may not exist)" >&2
+  exit 1
+fi
+USER_HOME=$(printf '%s\n' "$DSCL_OUT" | sed -E 's/^NFSHomeDirectory:[[:space:]]*//')
 # Trim any leading/trailing whitespace just in case.
 USER_HOME="${USER_HOME#"${USER_HOME%%[![:space:]]*}"}"
 USER_HOME="${USER_HOME%"${USER_HOME##*[![:space:]]}"}"
@@ -127,13 +134,18 @@ fi
 #
 # We want to register the linux-builder entry. If the user already has *other*
 # builders configured (e.g. a remote x86_64-linux box, or linux-builder PLUS
-# something else on the same line separated by `;`), wholesale-deleting the
-# existing `builders =` line would silently drop them. Skip the warning only
-# when the existing value is *exactly* a single linux-builder entry (no `;`).
+# something else on the same line separated by `;`, or multiple `builders =`
+# lines), wholesale-deleting the existing entries would silently drop them.
+# Skip the warning only when there is *exactly one* `builders =` line, with
+# no `;`, whose value starts with our linux-builder marker.
 if grep -qE '^builders[[:space:]]*=' "$NC"; then
   EXISTING_BUILDERS=$(grep -E '^builders[[:space:]]*=' "$NC" || true)
+  # `grep -c` counts matches; tolerate the no-match case (which `set -e`
+  # would otherwise treat as fatal even though we already gated on `-q`).
+  BUILDER_LINE_COUNT=$(grep -cE '^builders[[:space:]]*=' "$NC" || true)
   EXISTING_VALUE=$(printf '%s\n' "$EXISTING_BUILDERS" | sed -E 's/^builders[[:space:]]*=[[:space:]]*//')
-  if printf '%s\n' "$EXISTING_VALUE" | grep -q ';' \
+  if [ "${BUILDER_LINE_COUNT:-0}" -ne 1 ] \
+     || printf '%s\n' "$EXISTING_VALUE" | grep -q ';' \
      || ! printf '%s\n' "$EXISTING_VALUE" | grep -qE '^ssh-ng://builder@linux-builder[[:space:]]'; then
     echo "" >&2
     echo "WARNING: $NC already has a builders entry:" >&2
