@@ -38,47 +38,55 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # `attempt_timeout` is the per-attempt budget. The job timeout
-        # below multiplies it by max_attempts so a slow first attempt
-        # does not eat the budget and starve the retries.
+        # `attempt_timeout` is the per-attempt budget enforced by the
+        # `timeout` wrapper inside the retry loop. `job_timeout` is
+        # `attempt_timeout * 3 + 5`, sized to fit all 3 retries plus
+        # ~5 min for checkout, nix install, and cachix setup. They
+        # are precomputed because GitHub Actions expressions do not
+        # support arithmetic.
         include:
           - system: x86_64-linux
             runner: ubuntu-24.04
             image: msdos622
             attempt_timeout: 30
+            job_timeout: 95
           - system: x86_64-linux
             runner: ubuntu-24.04
             image: win30
             attempt_timeout: 30
+            job_timeout: 95
           - system: x86_64-linux
             runner: ubuntu-24.04
             image: wfwg311
             attempt_timeout: 30
+            job_timeout: 95
           - system: x86_64-linux
             runner: ubuntu-24.04
             image: win98
             attempt_timeout: 60
+            job_timeout: 185
           - system: aarch64-linux
             runner: ubuntu-24.04-arm
             image: msdos622
             attempt_timeout: 30
+            job_timeout: 95
           - system: aarch64-linux
             runner: ubuntu-24.04-arm
             image: win30
             attempt_timeout: 30
+            job_timeout: 95
           - system: aarch64-linux
             runner: ubuntu-24.04-arm
             image: wfwg311
             attempt_timeout: 30
+            job_timeout: 95
           - system: aarch64-linux
             runner: ubuntu-24.04-arm
             image: win98
             attempt_timeout: 60
+            job_timeout: 185
     runs-on: ${{ matrix.runner }}
-    # 3 attempts at the per-attempt budget, plus 5 min for checkout,
-    # nix install, and cachix setup. Keeps the job from being killed
-    # mid-retry while a hung single attempt still gets capped below.
-    timeout-minutes: ${{ matrix.attempt_timeout * 3 + 5 }}
+    timeout-minutes: ${{ matrix.job_timeout }}
     name: ${{ matrix.image }} (${{ matrix.system }})
     steps:
       - name: Check Cachix configuration
