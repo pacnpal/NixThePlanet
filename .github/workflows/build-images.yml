@@ -38,41 +38,47 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # `attempt_timeout` is the per-attempt budget. The job timeout
+        # below multiplies it by max_attempts so a slow first attempt
+        # does not eat the budget and starve the retries.
         include:
           - system: x86_64-linux
             runner: ubuntu-24.04
             image: msdos622
-            timeout: 30
+            attempt_timeout: 30
           - system: x86_64-linux
             runner: ubuntu-24.04
             image: win30
-            timeout: 30
+            attempt_timeout: 30
           - system: x86_64-linux
             runner: ubuntu-24.04
             image: wfwg311
-            timeout: 30
+            attempt_timeout: 30
           - system: x86_64-linux
             runner: ubuntu-24.04
             image: win98
-            timeout: 60
+            attempt_timeout: 60
           - system: aarch64-linux
             runner: ubuntu-24.04-arm
             image: msdos622
-            timeout: 30
+            attempt_timeout: 30
           - system: aarch64-linux
             runner: ubuntu-24.04-arm
             image: win30
-            timeout: 30
+            attempt_timeout: 30
           - system: aarch64-linux
             runner: ubuntu-24.04-arm
             image: wfwg311
-            timeout: 30
+            attempt_timeout: 30
           - system: aarch64-linux
             runner: ubuntu-24.04-arm
             image: win98
-            timeout: 60
+            attempt_timeout: 60
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: ${{ matrix.timeout }}
+    # 3 attempts at the per-attempt budget, plus 5 min for checkout,
+    # nix install, and cachix setup. Keeps the job from being killed
+    # mid-retry while a hung single attempt still gets capped below.
+    timeout-minutes: ${{ matrix.attempt_timeout * 3 + 5 }}
     name: ${{ matrix.image }} (${{ matrix.system }})
     steps:
       - name: Check Cachix configuration
@@ -110,6 +116,7 @@ jobs:
         # success is visible in the run UI.
         env:
           ATTR: .#packages.${{ matrix.system }}.${{ matrix.image }}-image
+          ATTEMPT_TIMEOUT_MINUTES: ${{ matrix.attempt_timeout }}
         run: |
           set -u
           attempt=1
@@ -119,14 +126,22 @@ jobs:
             # Run without `set -e` semantics so we can capture the
             # real exit code. `if cmd; then ... fi` always leaves $? = 0
             # in the no-else branch, which masked failures previously.
+            # `timeout` caps a single hung attempt so the remaining
+            # attempts still have time to run within the job budget.
             rc=0
-            nix build "$ATTR" --print-out-paths --print-build-logs || rc=$?
+            timeout "${ATTEMPT_TIMEOUT_MINUTES}m" \
+              nix build "$ATTR" --print-out-paths --print-build-logs \
+              || rc=$?
             echo "::endgroup::"
             if [ "$rc" -eq 0 ]; then
               echo "Build succeeded on attempt ${attempt}."
               exit 0
             fi
-            echo "Attempt ${attempt} failed with exit ${rc}."
+            if [ "$rc" -eq 124 ]; then
+              echo "Attempt ${attempt} hit the ${ATTEMPT_TIMEOUT_MINUTES}m per-attempt timeout."
+            else
+              echo "Attempt ${attempt} failed with exit ${rc}."
+            fi
             attempt=$((attempt + 1))
             # Brief pause before retry so transient network blips clear.
             sleep 5
