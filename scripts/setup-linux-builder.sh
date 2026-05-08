@@ -115,8 +115,14 @@ if grep -qE '^builders[[:space:]]*=' "$NC"; then
   fi
 fi
 sed -i '' -E '/^builders[[:space:]]*=/d; /^builders-use-substitutes[[:space:]]*=/d' "$NC"
+# supportedFeatures intentionally omits `kvm`: darwin.linux-builder is a
+# QEMU VM accelerated via HVF on macOS, so /dev/kvm is NOT exposed to the
+# Linux guest. Advertising `kvm` would cause Nix to schedule kvm-required
+# builds (e.g. NixOS VM tests) onto this builder and then fail at build
+# time. Users with a real KVM-capable Linux remote should add it as a
+# separate builders entry.
 cat >> "$NC" <<EOF
-builders = ssh-ng://builder@linux-builder ${BUILDER_SYS} /etc/nix/builder_ed25519 4 - benchmark,big-parallel,kvm - -
+builders = ssh-ng://builder@linux-builder ${BUILDER_SYS} /etc/nix/builder_ed25519 4 - benchmark,big-parallel - -
 builders-use-substitutes = true
 EOF
 

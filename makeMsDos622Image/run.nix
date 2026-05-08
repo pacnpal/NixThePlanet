@@ -27,7 +27,11 @@ writeShellScriptBin "run-msdos622.sh" ''
 
   if [ ! -f msdos622.img ]; then
     echo "msdos622.img not found, making disk image ./msdos622.img"
-    cp --no-preserve=mode ${diskImage} ./msdos622.img
+    # Avoid `cp --no-preserve=mode` (GNU-only): `cp` then `chmod` works on
+    # both GNU coreutils (Linux) and BSD cp (macOS). The Nix store source is
+    # mode 0444, so we need to make the local copy writable for dosbox-x.
+    cp ${diskImage} ./msdos622.img
+    chmod u+w ./msdos622.img
   fi
 
   run_dosbox() {

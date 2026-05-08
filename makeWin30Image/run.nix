@@ -30,7 +30,11 @@ writeShellScriptBin "run-win30.sh" ''
 
   if [ ! -f win30.img ]; then
     echo "win30.img not found, making disk image ./win30.img"
-    cp --no-preserve=mode ${diskImage} ./win30.img
+    # Avoid `cp --no-preserve=mode` (GNU-only): `cp` then `chmod` works on
+    # both GNU coreutils (Linux) and BSD cp (macOS). The Nix store source is
+    # mode 0444, so we need to make the local copy writable for dosbox-x.
+    cp ${diskImage} ./win30.img
+    chmod u+w ./win30.img
   fi
 
   run_dosbox() {
