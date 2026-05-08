@@ -111,19 +111,23 @@ NC_BAK="${NC}.bak.$(date +%Y%m%d-%H%M%S)"
 cp -p "$NC" "$NC_BAK"
 echo "    (backed up $NC -> $NC_BAK)"
 
-# Anchor on `^trusted-users[[:space:]]*=` so we don't accidentally match
-# `extra-trusted-users` and append to the wrong key.
+# Anchor on `^[[:space:]]*trusted-users[[:space:]]*=` so we don't accidentally
+# match `extra-trusted-users` and append to the wrong key. The leading
+# `[[:space:]]*` lets us also detect indented entries — Nix tolerates
+# leading whitespace before keys, and a column-0-only check would
+# mis-detect existing `trusted-users` and append a duplicate line.
 #
 # Membership check uses a whitespace-or-line-edge boundary instead of
 # `grep -w`. `-w` defines word characters as `[A-Za-z0-9_]`, which excludes
 # `-`, so a username like `john-doe` is mis-detected as not-present and
 # would be appended on every run.
-if grep -qE '^trusted-users[[:space:]]*=' "$NC"; then
-  if ! grep -E '^trusted-users[[:space:]]*=' "$NC" \
+if grep -qE '^[[:space:]]*trusted-users[[:space:]]*=' "$NC"; then
+  if ! grep -E '^[[:space:]]*trusted-users[[:space:]]*=' "$NC" \
      | grep -qE "(^|[[:space:]])$USER_NAME([[:space:]]|$)"; then
     # BSD sed (macOS) requires an explicit '' extension after -i; using a
     # non-empty extension would clobber the timestamped backup we took above.
-    sed -i '' -E "s/^(trusted-users[[:space:]]*=.*)$/\\1 $USER_NAME/" "$NC"
+    # Preserve any existing leading whitespace via the captured group.
+    sed -i '' -E "s/^([[:space:]]*trusted-users[[:space:]]*=.*)$/\\1 $USER_NAME/" "$NC"
   fi
 else
   echo "trusted-users = root $USER_NAME" >> "$NC"
@@ -138,12 +142,12 @@ fi
 # lines), wholesale-deleting the existing entries would silently drop them.
 # Skip the warning only when there is *exactly one* `builders =` line, with
 # no `;`, whose value starts with our linux-builder marker.
-if grep -qE '^builders[[:space:]]*=' "$NC"; then
-  EXISTING_BUILDERS=$(grep -E '^builders[[:space:]]*=' "$NC" || true)
+if grep -qE '^[[:space:]]*builders[[:space:]]*=' "$NC"; then
+  EXISTING_BUILDERS=$(grep -E '^[[:space:]]*builders[[:space:]]*=' "$NC" || true)
   # `grep -c` counts matches; tolerate the no-match case (which `set -e`
   # would otherwise treat as fatal even though we already gated on `-q`).
-  BUILDER_LINE_COUNT=$(grep -cE '^builders[[:space:]]*=' "$NC" || true)
-  EXISTING_VALUE=$(printf '%s\n' "$EXISTING_BUILDERS" | sed -E 's/^builders[[:space:]]*=[[:space:]]*//')
+  BUILDER_LINE_COUNT=$(grep -cE '^[[:space:]]*builders[[:space:]]*=' "$NC" || true)
+  EXISTING_VALUE=$(printf '%s\n' "$EXISTING_BUILDERS" | sed -E 's/^[[:space:]]*builders[[:space:]]*=[[:space:]]*//')
   if [ "${BUILDER_LINE_COUNT:-0}" -ne 1 ] \
      || printf '%s\n' "$EXISTING_VALUE" | grep -q ';' \
      || ! printf '%s\n' "$EXISTING_VALUE" | grep -qE '^ssh-ng://builder@linux-builder[[:space:]]'; then
@@ -157,7 +161,7 @@ if grep -qE '^builders[[:space:]]*=' "$NC"; then
     sleep 5
   fi
 fi
-sed -i '' -E '/^builders[[:space:]]*=/d; /^builders-use-substitutes[[:space:]]*=/d' "$NC"
+sed -i '' -E '/^[[:space:]]*builders[[:space:]]*=/d; /^[[:space:]]*builders-use-substitutes[[:space:]]*=/d' "$NC"
 # supportedFeatures intentionally omits `kvm`: darwin.linux-builder is a
 # QEMU VM accelerated via HVF on macOS, so /dev/kvm is NOT exposed to the
 # Linux guest. Advertising `kvm` would cause Nix to schedule kvm-required
