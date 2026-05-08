@@ -67,6 +67,7 @@ case "$HOST_ARCH" in
 esac
 
 echo "==> installing builder keys to /etc/nix/"
+mkdir -p /etc/nix
 install -m 0600 -o root -g wheel "$KEYS/builder_ed25519"     /etc/nix/builder_ed25519
 install -m 0644 -o root -g wheel "$KEYS/builder_ed25519.pub" /etc/nix/builder_ed25519.pub
 
@@ -84,7 +85,11 @@ Host linux-builder
 EOF
 chmod 0644 /etc/ssh/ssh_config.d/100-linux-builder.conf
 
-if ! grep -q '^Include /etc/ssh/ssh_config.d/\*' /etc/ssh/ssh_config 2>/dev/null; then
+# Match an Include directive that points at our snippet dir even if the
+# author wrote it with multiple spaces, tabs, or surrounding whitespace.
+# Lines starting with `#` are skipped so commented-out examples don't count.
+if ! grep -qE '^[[:space:]]*Include[[:space:]]+/etc/ssh/ssh_config\.d/\*[[:space:]]*$' \
+     /etc/ssh/ssh_config 2>/dev/null; then
   echo "==> adding 'Include /etc/ssh/ssh_config.d/*' to /etc/ssh/ssh_config"
   printf '\nInclude /etc/ssh/ssh_config.d/*\n' >> /etc/ssh/ssh_config
 fi
@@ -101,8 +106,14 @@ echo "    (backed up $NC -> $NC_BAK)"
 
 # Anchor on `^trusted-users[[:space:]]*=` so we don't accidentally match
 # `extra-trusted-users` and append to the wrong key.
+#
+# Membership check uses a whitespace-or-line-edge boundary instead of
+# `grep -w`. `-w` defines word characters as `[A-Za-z0-9_]`, which excludes
+# `-`, so a username like `john-doe` is mis-detected as not-present and
+# would be appended on every run.
 if grep -qE '^trusted-users[[:space:]]*=' "$NC"; then
-  if ! grep -E '^trusted-users[[:space:]]*=' "$NC" | grep -qw "$USER_NAME"; then
+  if ! grep -E '^trusted-users[[:space:]]*=' "$NC" \
+     | grep -qE "(^|[[:space:]])$USER_NAME([[:space:]]|$)"; then
     # BSD sed (macOS) requires an explicit '' extension after -i; using a
     # non-empty extension would clobber the timestamped backup we took above.
     sed -i '' -E "s/^(trusted-users[[:space:]]*=.*)$/\\1 $USER_NAME/" "$NC"
