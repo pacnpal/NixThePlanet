@@ -8,9 +8,8 @@ name: Build images
 # Legal note: the resulting .img contains unlicensed Microsoft binaries
 # (MS-DOS 6.22, Windows 3.0, Windows for Workgroups 3.11, Windows 98).
 # Pushing those to a public cache is something we do not encourage and
-# is on the maintainer who runs this workflow. The workflow is gated on
-# the CACHIX_AUTH_TOKEN secret being set, so it does not run on forks
-# by default.
+# is on the maintainer who runs this workflow. The workflow no-ops on
+# forks and until both Cachix secrets are configured.
 
 on:
   push:
@@ -33,9 +32,8 @@ permissions:
 
 jobs:
   build:
-    # Skip on forks that do not have the secret. The action will still
-    # be visible in the Actions tab, just no-op'd, which is the
-    # behavior we want.
+    # Keep the workflow visible in Actions, but no-op outside the main
+    # repo and until both Cachix secrets exist.
     if: github.repository == 'pacnpal/NixThePlanet'
     strategy:
       fail-fast: false
@@ -52,11 +50,11 @@ jobs:
           - system: x86_64-linux
             runner: ubuntu-24.04
             image: wfwg311
-            timeout: 45
+            timeout: 30
           - system: x86_64-linux
             runner: ubuntu-24.04
             image: win98
-            timeout: 90
+            timeout: 60
           - system: aarch64-linux
             runner: ubuntu-24.04-arm
             image: msdos622
@@ -68,30 +66,45 @@ jobs:
           - system: aarch64-linux
             runner: ubuntu-24.04-arm
             image: wfwg311
-            timeout: 45
+            timeout: 30
           - system: aarch64-linux
             runner: ubuntu-24.04-arm
             image: win98
-            timeout: 90
+            timeout: 60
     runs-on: ${{ matrix.runner }}
     timeout-minutes: ${{ matrix.timeout }}
     name: ${{ matrix.image }} (${{ matrix.system }})
     steps:
+      - name: Check Cachix configuration
+        id: cachix
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.CACHIX_AUTH_TOKEN }}" ] && [ -n "${{ secrets.CACHIX_SIGNING_KEY }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Cachix secrets are not configured; skipping image builds."
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.cachix.outputs.enabled == 'true'
 
       - uses: cachix/install-nix-action@v31
+        if: steps.cachix.outputs.enabled == 'true'
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
             accept-flake-config = true
 
       - uses: cachix/cachix-action@v17
+        if: steps.cachix.outputs.enabled == 'true'
         with:
           name: nixtheplanet
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
 
       - name: Build ${{ matrix.image }}-image (with retry)
+        if: steps.cachix.outputs.enabled == 'true'
         # The OCR-driven install is flaky. Retry up to twice before
         # giving up. Each attempt is logged separately so a partial
         # success is visible in the run UI.

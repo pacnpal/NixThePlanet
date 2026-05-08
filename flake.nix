@@ -6,18 +6,14 @@
   # Falls back silently to a local build (or your linux-builder VM) if
   # the cache is unreachable or the user does not opt in.
   #
-  # Maintainer note: the public key below is a placeholder and must be
-  # filled in once the `nixtheplanet` cache is created on cachix.org.
-  # The cache itself is populated by .github/workflows/build-images.yml.
+  # Maintainer note: `extra-trusted-public-keys` is intentionally
+  # omitted until the `nixtheplanet` cache exists and a real Cachix
+  # public key can be recorded here. Until then, opting into the flake
+  # config only adds the substituter URL and Nix falls back to a local
+  # build if it cannot trust the cache.
   nixConfig = {
     extra-substituters = [
       "https://nixtheplanet.cachix.org"
-    ];
-    extra-trusted-public-keys = [
-      # TODO: replace after `cachix create nixtheplanet`. Cachix prints
-      # the public key on creation. Format is
-      # `nixtheplanet.cachix.org-1:<base64>=`.
-      "nixtheplanet.cachix.org-1:REPLACE_ME_AFTER_CACHE_CREATED="
     ];
   };
 

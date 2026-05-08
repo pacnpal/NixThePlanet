@@ -1,21 +1,16 @@
 name: Repeatability
 
 # Builds the *-repeatability-test linkfarms (each is 100 copies of an
-# image derivation with mutated names) on a matching-arch runner. The
-# point is to catch silent non-determinism in the OCR-driven installer:
-# if any of the 100 copies hash differently, the build fails because
-# linkFarm requires unique paths.
+# image derivation with mutated names) on a matching-arch runner, then
+# hashes the resulting .img payloads. The linkFarm build forces all 100
+# realizations to happen; the explicit hash comparison below then fails
+# if those payloads differ.
 #
 # This is intentionally separate from build-images.yml because:
 #   - it is much slower (100x the work)
 #   - a single non-deterministic build does not block image publishing
 #   - we only need it weekly, not on every push
 #
-# Note: linkFarm uses the derivation .name attribute and the .drv
-# graph, not the output hash, so technically distinct flake-output
-# hashes will still link. Genuine non-determinism shows up as a build
-# failure further down (the derivation itself fails to be reproduced).
-
 on:
   workflow_dispatch:
   schedule:
@@ -53,21 +48,65 @@ jobs:
     timeout-minutes: 350
     name: ${{ matrix.image }}-repeatability (${{ matrix.system }})
     steps:
+      - name: Check Cachix configuration
+        id: cachix
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.CACHIX_AUTH_TOKEN }}" ] && [ -n "${{ secrets.CACHIX_SIGNING_KEY }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Cachix secrets are not configured; skipping repeatability builds."
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.cachix.outputs.enabled == 'true'
 
       - uses: cachix/install-nix-action@v31
+        if: steps.cachix.outputs.enabled == 'true'
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
             accept-flake-config = true
 
       - uses: cachix/cachix-action@v17
+        if: steps.cachix.outputs.enabled == 'true'
         with:
           name: nixtheplanet
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
 
-      - name: Build ${{ matrix.image }}-repeatability-test
+      - name: Build and compare ${{ matrix.image }}-repeatability-test
+        if: steps.cachix.outputs.enabled == 'true'
         env:
           ATTR: .#packages.${{ matrix.system }}.${{ matrix.image }}-repeatability-test
-        run: nix build "$ATTR" --print-out-paths --print-build-logs
+          EXPECTED_COUNT: 100
+        run: |
+          set -euo pipefail
+          nix build "$ATTR" --print-build-logs
+          out="$(nix path-info "$ATTR")"
+
+          count="$(find "$out" -mindepth 1 -maxdepth 1 -type l | wc -l)"
+          if [ "$count" -ne "$EXPECTED_COUNT" ]; then
+            echo "Expected ${EXPECTED_COUNT} repeated outputs, found ${count}."
+            exit 1
+          fi
+
+          mapfile -t unique_hashes < <(
+            find "$out" -mindepth 1 -maxdepth 1 -type l -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              | awk '{ print $1 }' \
+              | sort -u
+          )
+
+          if [ "${#unique_hashes[@]}" -ne 1 ]; then
+            echo "Repeatability check failed: found ${#unique_hashes[@]} distinct image hashes."
+            find "$out" -mindepth 1 -maxdepth 1 -type l -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              | sort
+            exit 1
+          fi
+
+          echo "Repeatability check passed with hash ${unique_hashes[0]}."

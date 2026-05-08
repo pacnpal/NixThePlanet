@@ -159,12 +159,17 @@ The flake declares the cache via `nixConfig`, so the easiest opt-in is:
 nix run --accept-flake-config github:pacnpal/NixThePlanet#win98
 ```
 
+Until the maintainer fills in the real Cachix public key in `flake.nix`,
+that command only opts into the substituter URL; nix will still fall back
+to the local/linux-builder path unless you add the real public key manually.
+
 Or, to make it permanent, add the substituter to your `nix.conf`
 (`/etc/nix/nix.conf` on multi-user installs, `~/.config/nix/nix.conf` on
 single-user):
 
 ```
 extra-substituters = https://nixtheplanet.cachix.org
+# replace after `cachix create nixtheplanet`
 extra-trusted-public-keys = nixtheplanet.cachix.org-1:REPLACE_ME_AFTER_CACHE_CREATED=
 ```
 
