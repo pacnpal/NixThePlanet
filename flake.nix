@@ -58,11 +58,27 @@
           withNativeRunScript = subdir: image:
             if isDarwin
             then image.overrideAttrs (old: {
-              passthru = (old.passthru or { }) // {
-                runScript = pkgs.callPackage (./. + "/${subdir}/run.nix") {
-                  diskImage = image;
-                };
-              };
+              passthru = (old.passthru or { }) // (
+                let
+                  # `makeRunScript` is the documented public API
+                  # (README: `(makeWin30Image {}).makeRunScript { diskImage = ...; }`)
+                  # — a function that takes overrides and returns the
+                  # runner derivation. `runScript` is `makeRunScript {}`.
+                  # The image-side `passthru.makeRunScript` resolves
+                  # `callPackage` against `imagePkgs` (the Linux nixpkgs
+                  # we use to build the .img on a remote builder), so its
+                  # `dosbox-x` etc. would be Linux-typed. Override both
+                  # entrypoints with `pkgs.callPackage` (darwin nixpkgs)
+                  # and a darwin-built default `diskImage` so the
+                  # generated runners actually execute natively on macOS.
+                  makeRunScript = args: pkgs.callPackage (./. + "/${subdir}/run.nix") ({
+                    diskImage = image;
+                  } // args);
+                in {
+                  inherit makeRunScript;
+                  runScript = makeRunScript {};
+                }
+              );
             })
             else image;
           genOverridenDrvList = drv: howMany: builtins.genList (x: drv.overrideAttrs { name = drv.name + "-" + toString x; }) howMany;
