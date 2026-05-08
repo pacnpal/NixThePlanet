@@ -92,18 +92,32 @@
           inherit system;
         };
         overlayAttrs = config.legacyPackages;
-        legacyPackages = rec {
+        legacyPackages = let
+          # Raw image-builder functions, callPackage'd against imagePkgs
+          # (Linux nixpkgs on darwin so the build offloads to a Linux remote).
+          rawImageFns = rec {
+            makeMsDos622Image = imagePkgs.callPackage ./makeMsDos622Image {};
+            makeWin30Image = imagePkgs.callPackage ./makeWin30Image {
+              inherit makeMsDos622Image;
+            };
+            makeWfwg311Image = imagePkgs.callPackage ./makeWfwg311Image {
+              inherit makeMsDos622Image;
+            };
+            makeWin98Image = imagePkgs.callPackage ./makeWin98Image {};
+#            makeSystem7Image = imagePkgs.callPackage ./makeSystem7Image {};
+          };
+          # On darwin, wrap each function so its returned image's
+          # passthru.runScript / passthru.makeRunScript use native darwin
+          # dosbox-x. This makes the public API
+          # `(legacyPackages.makeWin30Image {}).makeRunScript { ... }` produce
+          # native runners on macOS, not Linux ones.
+          imageFns =
+            if isDarwin
+            then lib.mapAttrs (name: fn: args: withNativeRunScript name (fn args)) rawImageFns
+            else rawImageFns;
+        in {
           inherit osx-kvm;
-          makeMsDos622Image = imagePkgs.callPackage ./makeMsDos622Image {};
-          makeWin30Image = imagePkgs.callPackage ./makeWin30Image {
-            inherit makeMsDos622Image;
-          };
-          makeWfwg311Image = imagePkgs.callPackage ./makeWfwg311Image {
-            inherit makeMsDos622Image;
-          };
-          makeWin98Image = imagePkgs.callPackage ./makeWin98Image {};
-#          makeSystem7Image = imagePkgs.callPackage ./makeSystem7Image {};
-        } // lib.optionalAttrs (!isDarwin) {
+        } // imageFns // lib.optionalAttrs (!isDarwin) {
           makeDarwinImage = pkgs.callPackage ./makeDarwinImage {
             # substitute relative input with absolute input
             qemu_kvm = pkgs.qemu_kvm.overrideAttrs {
@@ -138,10 +152,13 @@
           };
         };
         packages = let
-          msdos622-image = withNativeRunScript "makeMsDos622Image" (config.legacyPackages.makeMsDos622Image {});
-          win30-image = withNativeRunScript "makeWin30Image" (config.legacyPackages.makeWin30Image {});
-          wfwg311-image = withNativeRunScript "makeWfwg311Image" (config.legacyPackages.makeWfwg311Image {});
-          win98-image = withNativeRunScript "makeWin98Image" (config.legacyPackages.makeWin98Image {});
+          # legacyPackages.make*Image is already darwin-aware on darwin
+          # (wrapped via withNativeRunScript), so calling it directly
+          # produces an image with native runScript / makeRunScript.
+          msdos622-image = config.legacyPackages.makeMsDos622Image {};
+          win30-image = config.legacyPackages.makeWin30Image {};
+          wfwg311-image = config.legacyPackages.makeWfwg311Image {};
+          win98-image = config.legacyPackages.makeWin98Image {};
         in {
           inherit msdos622-image win30-image wfwg311-image win98-image;
           #system7-image = config.legacyPackages.makeSystem7Image {};
