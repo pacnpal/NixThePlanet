@@ -115,11 +115,15 @@ fi
 #   url system sshKey maxJobs speedFactor supportedFeatures mandatoryFeatures publicHostKey
 #
 # We want to register the linux-builder entry. If the user already has *other*
-# builders configured (e.g. a remote x86_64-linux box), wholesale-deleting the
-# existing `builders =` line would silently drop them, so warn loudly first.
+# builders configured (e.g. a remote x86_64-linux box, or linux-builder PLUS
+# something else on the same line separated by `;`), wholesale-deleting the
+# existing `builders =` line would silently drop them. Skip the warning only
+# when the existing value is *exactly* a single linux-builder entry (no `;`).
 if grep -qE '^builders[[:space:]]*=' "$NC"; then
   EXISTING_BUILDERS=$(grep -E '^builders[[:space:]]*=' "$NC" || true)
-  if ! printf '%s\n' "$EXISTING_BUILDERS" | grep -q 'ssh-ng://builder@linux-builder'; then
+  EXISTING_VALUE=$(printf '%s\n' "$EXISTING_BUILDERS" | sed -E 's/^builders[[:space:]]*=[[:space:]]*//')
+  if printf '%s\n' "$EXISTING_VALUE" | grep -q ';' \
+     || ! printf '%s\n' "$EXISTING_VALUE" | grep -qE '^ssh-ng://builder@linux-builder[[:space:]]'; then
     echo "" >&2
     echo "WARNING: $NC already has a builders entry:" >&2
     echo "  $EXISTING_BUILDERS" >&2

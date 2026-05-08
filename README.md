@@ -170,9 +170,11 @@ QEMU+HVF (HVF-accelerated when the guest arch matches the host).
    > `builders-use-substitutes =` lines in `/etc/nix/nix.conf`. If you
    > already have other remote builders configured, back up `nix.conf`
    > first or use the `nix-darwin` alternative below instead. The script
-   > will warn (with a 5s pause) before overwriting a non-matching
-   > `builders` line and writes a timestamped `.bak` to the same
-   > directory.
+   > will warn (with a 5s pause) before overwriting a `builders` line
+   > unless that line is exactly a single `linux-builder` entry, and it
+   > always writes a timestamped `.bak` to the same directory. Lines
+   > with multiple builders (separated by `;`) trigger the warning even
+   > if one of them is the linux-builder entry.
 
 3. Boot the VM (keep this terminal open, or daemonize it via launchd /
    `nix-darwin`'s `nix.linux-builder.enable = true`):
