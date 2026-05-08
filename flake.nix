@@ -17,6 +17,8 @@
       systems = [
         "x86_64-linux"
         "aarch64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
       ];
       flake = {
         packages.aarch64-linux.macos-ventura-image = throw "QEMU TCG doesn't emulate certain CPU features needed for MacOS x86 to boot, unsupported";
@@ -32,8 +34,37 @@
           };
         };
       };
-      perSystem = { config, pkgs, system, ... }:
+      perSystem = { config, pkgs, lib, system, ... }:
         let
+          # Derive isDarwin from `system` (a plain string), not from
+          # pkgs.stdenv — pkgs depends on the overlay, the overlay depends
+          # on legacyPackages, and legacyPackages branches on isDarwin.
+          # Using pkgs here would close that loop and stack-overflow.
+          isDarwin = lib.hasSuffix "-darwin" system;
+          # Image-build derivations rely on Linux-only tooling
+          # (xvfb-run, x11vnc, expect-driven VNC + tesseract OCR). On
+          # darwin we construct them from a matching-arch Linux nixpkgs so
+          # they have system = {aarch64,x86_64}-linux and Nix offloads the
+          # build to a Linux remote builder. Matching the host arch lets
+          # darwin.linux-builder accelerate the VM via HVF instead of TCG.
+          # The runScript still uses native darwin dosbox-x.
+          linuxBuildSystem =
+            if lib.hasPrefix "aarch64-" system then "aarch64-linux"
+            else "x86_64-linux";
+          imagePkgs =
+            if isDarwin
+            then import inputs.nixpkgs { system = linuxBuildSystem; }
+            else pkgs;
+          withNativeRunScript = subdir: image:
+            if isDarwin
+            then image.overrideAttrs (old: {
+              passthru = (old.passthru or { }) // {
+                runScript = pkgs.callPackage (./. + "/${subdir}/run.nix") {
+                  diskImage = image;
+                };
+              };
+            })
+            else image;
           genOverridenDrvList = drv: howMany: builtins.genList (x: drv.overrideAttrs { name = drv.name + "-" + toString x; }) howMany;
           genOverridenDrvLinkFarm = drv: howMany: pkgs.linkFarm (drv.name + "-linkfarm-${toString howMany}") (builtins.genList (x: rec { name = toString x + "-" + drv.name; path = drv.overrideAttrs { inherit name; }; }) howMany);
         in
@@ -45,8 +76,18 @@
           inherit system;
         };
         overlayAttrs = config.legacyPackages;
-        legacyPackages = {
+        legacyPackages = rec {
           inherit osx-kvm;
+          makeMsDos622Image = imagePkgs.callPackage ./makeMsDos622Image {};
+          makeWin30Image = imagePkgs.callPackage ./makeWin30Image {
+            inherit makeMsDos622Image;
+          };
+          makeWfwg311Image = imagePkgs.callPackage ./makeWfwg311Image {
+            inherit makeMsDos622Image;
+          };
+          makeWin98Image = imagePkgs.callPackage ./makeWin98Image {};
+#          makeSystem7Image = imagePkgs.callPackage ./makeSystem7Image {};
+        } // lib.optionalAttrs (!isDarwin) {
           makeDarwinImage = pkgs.callPackage ./makeDarwinImage {
             # substitute relative input with absolute input
             qemu_kvm = pkgs.qemu_kvm.overrideAttrs {
@@ -56,17 +97,8 @@
               '';
             };
           };
-          makeMsDos622Image = pkgs.callPackage ./makeMsDos622Image {};
-          makeWin30Image = pkgs.callPackage ./makeWin30Image {};
-          makeWfwg311Image = pkgs.callPackage ./makeWfwg311Image {};
-          makeWin98Image = pkgs.callPackage ./makeWin98Image {};
-#          makeSystem7Image = pkgs.callPackage ./makeSystem7Image {};
         };
         apps = {
-          macos-ventura = {
-            type = "app";
-            program = config.packages.macos-ventura-image.runScript;
-          };
           msdos622 = {
             type = "app";
             program = config.packages.msdos622-image.runScript;
@@ -83,21 +115,29 @@
             type = "app";
             program = config.packages.win98-image.runScript;
           };
+        } // lib.optionalAttrs (!isDarwin) {
+          macos-ventura = {
+            type = "app";
+            program = config.packages.macos-ventura-image.runScript;
+          };
         };
-        packages = rec {
-          macos-ventura-image = config.legacyPackages.makeDarwinImage {};
-          msdos622-image = config.legacyPackages.makeMsDos622Image {};
-          win30-image = config.legacyPackages.makeWin30Image {};
-          wfwg311-image = config.legacyPackages.makeWfwg311Image {};
-          win98-image = config.legacyPackages.makeWin98Image {};
+        packages = let
+          msdos622-image = withNativeRunScript "makeMsDos622Image" (config.legacyPackages.makeMsDos622Image {});
+          win30-image = withNativeRunScript "makeWin30Image" (config.legacyPackages.makeWin30Image {});
+          wfwg311-image = withNativeRunScript "makeWfwg311Image" (config.legacyPackages.makeWfwg311Image {});
+          win98-image = withNativeRunScript "makeWin98Image" (config.legacyPackages.makeWin98Image {});
+        in {
+          inherit msdos622-image win30-image wfwg311-image win98-image;
           #system7-image = config.legacyPackages.makeSystem7Image {};
+        } // lib.optionalAttrs (!isDarwin) {
+          macos-ventura-image = config.legacyPackages.makeDarwinImage {};
           #macos-repeatability-test = genOverridenDrvLinkFarm (macos-ventura-image.overrideAttrs { repeatabilityTest = true; }) 3;
           win98-repeatability-test = genOverridenDrvLinkFarm win98-image 100;
           wfwg311-repeatability-test = genOverridenDrvLinkFarm wfwg311-image 100;
           win30-repeatability-test = genOverridenDrvLinkFarm win30-image 100;
           msDos622-repeatability-test = genOverridenDrvLinkFarm msdos622-image 100;
         };
-        checks = {
+        checks = lib.optionalAttrs (!isDarwin) {
           macos-ventura = pkgs.callPackage ./makeDarwinImage/vm-test.nix { nixosModule = inputs.self.nixosModules.macos-ventura; };
         };
       };
