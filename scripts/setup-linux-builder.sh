@@ -11,6 +11,11 @@
 
 set -euo pipefail
 
+if [ "$(uname -s)" != "Darwin" ]; then
+  echo "This script configures a macOS host to use darwin.linux-builder; run it on macOS." >&2
+  exit 1
+fi
+
 if [ "$EUID" -ne 0 ]; then
   echo "Run with sudo: sudo bash $0" >&2
   exit 1
@@ -21,7 +26,13 @@ if [ -z "$USER_NAME" ]; then
   echo "Set USER_NAME=<your-username> (no \$SUDO_USER in env)" >&2
   exit 1
 fi
-USER_HOME=$(eval echo "~$USER_NAME")
+# Look up home dir via dscl rather than `eval echo "~$USER_NAME"` so a hostile
+# USER_NAME (containing backticks, $(...) etc) can't get executed as root.
+USER_HOME=$(dscl . -read "/Users/$USER_NAME" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+if [ -z "$USER_HOME" ] || [ ! -d "$USER_HOME" ]; then
+  echo "Could not resolve home directory for user '$USER_NAME' via dscl" >&2
+  exit 1
+fi
 KEYS="${KEYS:-$USER_HOME/.linux-builder/keys}"
 
 if [ ! -f "$KEYS/builder_ed25519" ] || [ ! -f "$KEYS/builder_ed25519.pub" ]; then
@@ -66,9 +77,19 @@ echo "==> updating /etc/nix/nix.conf"
 NC=/etc/nix/nix.conf
 touch "$NC"
 
-if grep -qE '^trusted-users' "$NC"; then
-  if ! grep -E '^trusted-users' "$NC" | grep -qw "$USER_NAME"; then
-    sed -i.bak -E "s/^trusted-users(.*)$/trusted-users\\1 $USER_NAME/" "$NC"
+# Take a single timestamped backup before any in-place edits so repeat runs
+# don't clobber a useful prior backup (sed -i.bak overwrites .bak each time).
+NC_BAK="${NC}.bak.$(date +%Y%m%d-%H%M%S)"
+cp -p "$NC" "$NC_BAK"
+echo "    (backed up $NC -> $NC_BAK)"
+
+# Anchor on `^trusted-users[[:space:]]*=` so we don't accidentally match
+# `extra-trusted-users` and append to the wrong key.
+if grep -qE '^trusted-users[[:space:]]*=' "$NC"; then
+  if ! grep -E '^trusted-users[[:space:]]*=' "$NC" | grep -qw "$USER_NAME"; then
+    # BSD sed (macOS) requires an explicit '' extension after -i; using a
+    # non-empty extension would clobber the timestamped backup we took above.
+    sed -i '' -E "s/^(trusted-users[[:space:]]*=.*)$/\\1 $USER_NAME/" "$NC"
   fi
 else
   echo "trusted-users = root $USER_NAME" >> "$NC"
@@ -76,7 +97,24 @@ fi
 
 # Builder spec columns:
 #   url system sshKey maxJobs speedFactor supportedFeatures mandatoryFeatures publicHostKey
-sed -i.bak -E '/^builders[[:space:]]*=/d; /^builders-use-substitutes[[:space:]]*=/d' "$NC"
+#
+# We want to register the linux-builder entry. If the user already has *other*
+# builders configured (e.g. a remote x86_64-linux box), wholesale-deleting the
+# existing `builders =` line would silently drop them, so warn loudly first.
+if grep -qE '^builders[[:space:]]*=' "$NC"; then
+  EXISTING_BUILDERS=$(grep -E '^builders[[:space:]]*=' "$NC" || true)
+  if ! printf '%s\n' "$EXISTING_BUILDERS" | grep -q 'ssh-ng://builder@linux-builder'; then
+    echo "" >&2
+    echo "WARNING: $NC already has a builders entry:" >&2
+    echo "  $EXISTING_BUILDERS" >&2
+    echo "This script will replace it with a single linux-builder entry." >&2
+    echo "Existing builders will be lost. A backup is at $NC_BAK." >&2
+    echo "If you need to keep them, hit Ctrl-C now and merge manually." >&2
+    echo "" >&2
+    sleep 5
+  fi
+fi
+sed -i '' -E '/^builders[[:space:]]*=/d; /^builders-use-substitutes[[:space:]]*=/d' "$NC"
 cat >> "$NC" <<EOF
 builders = ssh-ng://builder@linux-builder ${BUILDER_SYS} /etc/nix/builder_ed25519 4 - benchmark,big-parallel,kvm - -
 builders-use-substitutes = true

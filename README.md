@@ -166,12 +166,27 @@ QEMU+HVF (HVF-accelerated when the guest arch matches the host).
    matched to the host arch automatically (`aarch64-darwin` →
    `aarch64-linux`, HVF-accelerated; `x86_64-darwin` → `x86_64-linux`).
 
+   > ⚠️ The script replaces any existing `builders =` and
+   > `builders-use-substitutes =` lines in `/etc/nix/nix.conf`. If you
+   > already have other remote builders configured, back up `nix.conf`
+   > first or use the `nix-darwin` alternative below instead. The script
+   > will warn (with a 5s pause) before overwriting a non-matching
+   > `builders` line and writes a timestamped `.bak` to the same
+   > directory.
+
 3. Boot the VM (keep this terminal open, or daemonize it via launchd /
    `nix-darwin`'s `nix.linux-builder.enable = true`):
 
    ```bash
    cd ~/.linux-builder && KEYS=./keys nix run nixpkgs#darwin.linux-builder
    ```
+
+   `KEYS` is read by the `darwin.linux-builder` package itself (not by
+   `nix run`): it points at the directory containing the SSH keypair
+   that was used in step 2, so the VM's `authorized_keys` matches the
+   host's `/etc/nix/builder_ed25519`. Without it, the VM generates a
+   throwaway keypair on each boot and your nix-daemon's identity won't
+   be authorized.
 
 4. Run any of the apps — the image builds on the VM, dosbox-x runs natively:
 
