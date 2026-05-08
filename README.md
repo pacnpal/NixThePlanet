@@ -152,39 +152,19 @@ QEMU+HVF (HVF-accelerated when the guest arch matches the host).
      -t ed25519 -N "" -C 'builder@localhost'
    ```
 
-2. Install the keys and configure nix to use the builder (one-time, sudo):
+2. Install the keys and configure nix to use the builder (one-time, sudo).
+   The repo ships a script that does all the system-level wiring:
 
    ```bash
-   sudo install -m 0600 ~/.linux-builder/keys/builder_ed25519     /etc/nix/builder_ed25519
-   sudo install -m 0644 ~/.linux-builder/keys/builder_ed25519.pub /etc/nix/builder_ed25519.pub
-
-   sudo tee /etc/ssh/ssh_config.d/100-linux-builder.conf >/dev/null <<'EOF'
-   Host linux-builder
-     Hostname localhost
-     HostKeyAlias linux-builder
-     Port 31022
-     User builder
-     IdentityFile /etc/nix/builder_ed25519
-     StrictHostKeyChecking accept-new
-     UserKnownHostsFile /etc/nix/builder_known_hosts
-   EOF
-   grep -q '^Include /etc/ssh/ssh_config.d/\*' /etc/ssh/ssh_config \
-     || echo 'Include /etc/ssh/ssh_config.d/*' | sudo tee -a /etc/ssh/ssh_config
-
-   # Match builder system to your host arch:
-   #   aarch64-darwin host → aarch64-linux builder (HVF accelerated)
-   #   x86_64-darwin host  → x86_64-linux builder
-   BUILDER_SYS=$(uname -m | sed 's/arm64/aarch64-linux/; s/x86_64/x86_64-linux/')
-
-   sudo tee -a /etc/nix/nix.conf >/dev/null <<EOF
-
-   trusted-users = root @admin
-   builders = ssh-ng://builder@linux-builder ${BUILDER_SYS} /etc/nix/builder_ed25519 4 - benchmark,big-parallel,kvm - -
-   builders-use-substitutes = true
-   EOF
-
-   sudo launchctl kickstart -k system/org.nixos.nix-daemon
+   sudo bash scripts/setup-linux-builder.sh
    ```
+
+   It installs `/etc/nix/builder_ed25519`, writes
+   `/etc/ssh/ssh_config.d/100-linux-builder.conf`, adds your user to
+   `trusted-users`, sets `builders =` and `builders-use-substitutes` in
+   `/etc/nix/nix.conf`, and reloads `nix-daemon`. The builder system is
+   matched to the host arch automatically (`aarch64-darwin` →
+   `aarch64-linux`, HVF-accelerated; `x86_64-darwin` → `x86_64-linux`).
 
 3. Boot the VM (keep this terminal open, or daemonize it via launchd /
    `nix-darwin`'s `nix.linux-builder.enable = true`):
