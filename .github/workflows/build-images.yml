@@ -116,13 +116,16 @@ jobs:
           max_attempts=3
           while [ "$attempt" -le "$max_attempts" ]; do
             echo "::group::Attempt ${attempt}/${max_attempts}: nix build $ATTR"
-            if nix build "$ATTR" --print-out-paths --print-build-logs; then
-              echo "::endgroup::"
+            # Run without `set -e` semantics so we can capture the
+            # real exit code. `if cmd; then ... fi` always leaves $? = 0
+            # in the no-else branch, which masked failures previously.
+            rc=0
+            nix build "$ATTR" --print-out-paths --print-build-logs || rc=$?
+            echo "::endgroup::"
+            if [ "$rc" -eq 0 ]; then
               echo "Build succeeded on attempt ${attempt}."
               exit 0
             fi
-            rc=$?
-            echo "::endgroup::"
             echo "Attempt ${attempt} failed with exit ${rc}."
             attempt=$((attempt + 1))
             # Brief pause before retry so transient network blips clear.

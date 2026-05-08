@@ -167,7 +167,7 @@ Or, to make it permanent, add the substituter to your `nix.conf`
 (`/etc/nix/nix.conf` on multi-user installs, `~/.config/nix/nix.conf` on
 single-user):
 
-```
+```ini
 extra-substituters = https://nixtheplanet.cachix.org
 # replace after `cachix create nixtheplanet`
 extra-trusted-public-keys = nixtheplanet.cachix.org-1:REPLACE_ME_AFTER_CACHE_CREATED=
