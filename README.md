@@ -193,6 +193,9 @@ QEMU+HVF (HVF-accelerated when the guest arch matches the host).
 4. Run any of the apps — the image builds on the VM, dosbox-x runs natively:
 
    ```bash
+   # from a checkout of this repo:
+   nix run .#win98
+   # or from anywhere, against the canonical flake:
    nix run github:matthewcroughan/NixThePlanet#win98
    ```
 
