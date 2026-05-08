@@ -30,8 +30,12 @@ writeShellScriptBin "run-msdos622.sh" ''
     # Avoid `cp --no-preserve=mode` (GNU-only): `cp` then `chmod` works on
     # both GNU coreutils (Linux) and BSD cp (macOS). The Nix store source is
     # mode 0444, so we need to make the local copy writable for dosbox-x.
-    cp ${diskImage} ./msdos622.img
-    chmod u+w ./msdos622.img
+    # Fail fast on cp/chmod errors so dosbox-x doesn't boot a partial image.
+    cp ${diskImage} ./msdos622.img && \
+      chmod u+w ./msdos622.img || {
+        echo "Failed to prepare ./msdos622.img" >&2
+        exit 1
+      }
   fi
 
   run_dosbox() {

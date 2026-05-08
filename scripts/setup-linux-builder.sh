@@ -66,7 +66,17 @@ if [ ! -f "$KEYS/builder_ed25519" ] || [ ! -f "$KEYS/builder_ed25519.pub" ]; the
   exit 1
 fi
 
-HOST_ARCH=$(uname -m)
+# `uname -m` reflects the *current process* architecture. If the script is
+# run from a Rosetta-translated shell on Apple Silicon, it would say
+# `x86_64` and we'd configure the wrong builder system. `sysctl -in
+# hw.optional.arm64` returns `1` on ARM hardware regardless of Rosetta
+# translation (and exits non-zero / prints empty on Intel), so check that
+# first and fall back to `uname -m` only on non-ARM hardware.
+if [ "$(sysctl -in hw.optional.arm64 2>/dev/null || echo 0)" = "1" ]; then
+  HOST_ARCH=arm64
+else
+  HOST_ARCH=$(uname -m)
+fi
 case "$HOST_ARCH" in
   arm64|aarch64) BUILDER_SYS=aarch64-linux ;;
   x86_64)        BUILDER_SYS=x86_64-linux ;;

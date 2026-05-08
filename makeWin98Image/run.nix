@@ -26,8 +26,12 @@ in writeShellScriptBin "run-win98.sh" ''
     # Avoid `cp --no-preserve=mode` (GNU-only): `cp` then `chmod` works on
     # both GNU coreutils (Linux) and BSD cp (macOS). The Nix store source is
     # mode 0444, so we need to make the local copy writable for dosbox-x.
-    cp ${diskImage} ./win98.img
-    chmod u+w ./win98.img
+    # Fail fast on cp/chmod errors so dosbox-x doesn't boot a partial image.
+    cp ${diskImage} ./win98.img && \
+      chmod u+w ./win98.img || {
+        echo "Failed to prepare ./win98.img" >&2
+        exit 1
+      }
   fi
 
   run_dosbox() {
