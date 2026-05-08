@@ -39,61 +39,52 @@ jobs:
       fail-fast: false
       matrix:
         # `attempt_timeout` is the per-attempt budget enforced by the
-        # `timeout` wrapper inside the retry loop. `max_attempts` is
-        # the single source of truth for the retry count, and
-        # `job_timeout` is precomputed as
-        # `attempt_timeout * max_attempts + 5`, sized to fit all
-        # attempts plus ~5 min for checkout, nix install, and cachix
-        # setup. The values are precomputed because GitHub Actions
+        # `timeout` wrapper inside the retry loop. `job_timeout` is
+        # precomputed for the current hardcoded three-attempt retry
+        # loop as `attempt_timeout * 3 + 5`, sized to fit all attempts
+        # plus ~5 min for checkout, nix install, and cachix setup.
+        # The values are precomputed because GitHub Actions
         # expressions do not support arithmetic.
         include:
           - system: x86_64-linux
             runner: ubuntu-24.04
             image: msdos622
             attempt_timeout: 30
-            max_attempts: 3
             job_timeout: 95
           - system: x86_64-linux
             runner: ubuntu-24.04
             image: win30
             attempt_timeout: 30
-            max_attempts: 3
             job_timeout: 95
           - system: x86_64-linux
             runner: ubuntu-24.04
             image: wfwg311
             attempt_timeout: 30
-            max_attempts: 3
             job_timeout: 95
           - system: x86_64-linux
             runner: ubuntu-24.04
             image: win98
             attempt_timeout: 60
-            max_attempts: 3
             job_timeout: 185
           - system: aarch64-linux
             runner: ubuntu-24.04-arm
             image: msdos622
             attempt_timeout: 30
-            max_attempts: 3
             job_timeout: 95
           - system: aarch64-linux
             runner: ubuntu-24.04-arm
             image: win30
             attempt_timeout: 30
-            max_attempts: 3
             job_timeout: 95
           - system: aarch64-linux
             runner: ubuntu-24.04-arm
             image: wfwg311
             attempt_timeout: 30
-            max_attempts: 3
             job_timeout: 95
           - system: aarch64-linux
             runner: ubuntu-24.04-arm
             image: win98
             attempt_timeout: 60
-            max_attempts: 3
             job_timeout: 185
     runs-on: ${{ matrix.runner }}
     timeout-minutes: ${{ matrix.job_timeout }}
