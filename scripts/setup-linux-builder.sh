@@ -26,9 +26,25 @@ if [ -z "$USER_NAME" ]; then
   echo "Set USER_NAME=<your-username> (no \$SUDO_USER in env)" >&2
   exit 1
 fi
+# Validate USER_NAME against a conservative POSIX-style username regex before
+# we splice it into grep patterns and `sed` replacements (and the dscl path)
+# below. This forecloses on regex / sed-replacement metacharacters (`&`, `\`,
+# `/`, `[`, etc.) corrupting `/etc/nix/nix.conf` or causing a mis-detect of
+# existing membership. macOS `useradd`/`sysadminctl` enforce similar rules.
+if ! [[ "$USER_NAME" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+  echo "USER_NAME '$USER_NAME' is not a valid POSIX username (expected [a-z_][a-z0-9_-]*)" >&2
+  exit 1
+fi
 # Look up home dir via dscl rather than `eval echo "~$USER_NAME"` so a hostile
 # USER_NAME (containing backticks, $(...) etc) can't get executed as root.
-USER_HOME=$(dscl . -read "/Users/$USER_NAME" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+# `dscl . -read` prints `NFSHomeDirectory: /Users/foo`; strip the leading
+# `NFSHomeDirectory:` label and surrounding whitespace rather than
+# `awk '{print $2}'` so paths with spaces survive intact.
+USER_HOME=$(dscl . -read "/Users/$USER_NAME" NFSHomeDirectory 2>/dev/null \
+  | sed -E 's/^NFSHomeDirectory:[[:space:]]*//')
+# Trim any leading/trailing whitespace just in case.
+USER_HOME="${USER_HOME#"${USER_HOME%%[![:space:]]*}"}"
+USER_HOME="${USER_HOME%"${USER_HOME##*[![:space:]]}"}"
 if [ -z "$USER_HOME" ] || [ ! -d "$USER_HOME" ]; then
   echo "Could not resolve home directory for user '$USER_NAME' via dscl" >&2
   exit 1
