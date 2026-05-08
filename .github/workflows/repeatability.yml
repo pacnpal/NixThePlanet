@@ -1,0 +1,73 @@
+name: Repeatability
+
+# Builds the *-repeatability-test linkfarms (each is 100 copies of an
+# image derivation with mutated names) on a matching-arch runner. The
+# point is to catch silent non-determinism in the OCR-driven installer:
+# if any of the 100 copies hash differently, the build fails because
+# linkFarm requires unique paths.
+#
+# This is intentionally separate from build-images.yml because:
+#   - it is much slower (100x the work)
+#   - a single non-deterministic build does not block image publishing
+#   - we only need it weekly, not on every push
+#
+# Note: linkFarm uses the derivation .name attribute and the .drv
+# graph, not the output hash, so technically distinct flake-output
+# hashes will still link. Genuine non-determinism shows up as a build
+# failure further down (the derivation itself fails to be reproduced).
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Sunday at 03:33 UTC. Once a week is plenty.
+    - cron: '33 3 * * 0'
+
+permissions:
+  contents: read
+
+jobs:
+  repeatability:
+    if: github.repository == 'pacnpal/NixThePlanet'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Only the cheapest two images are worth doing 100x of in
+          # CI. wfwg311 and win98 would blow the 6h runner limit.
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+            image: msDos622
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+            image: win30
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+            image: msDos622
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+            image: win30
+    runs-on: ${{ matrix.runner }}
+    # 6h is the hard runner cap. The repeatability builds are
+    # serialized inside one derivation graph so this is the budget for
+    # the whole 100-copy run.
+    timeout-minutes: 350
+    name: ${{ matrix.image }}-repeatability (${{ matrix.system }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: nixtheplanet
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+
+      - name: Build ${{ matrix.image }}-repeatability-test
+        env:
+          ATTR: .#packages.${{ matrix.system }}.${{ matrix.image }}-repeatability-test
+        run: nix build "$ATTR" --print-out-paths --print-build-logs

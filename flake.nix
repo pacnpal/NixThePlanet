@@ -1,4 +1,26 @@
 {
+  # Optional binary-cache hint. With `accept-flake-config = true` in
+  # nix.conf (or `--accept-flake-config` on the command line, or your
+  # user listed in `trusted-users`), Nix will pull prebuilt .img
+  # outputs from this Cachix cache instead of building them locally.
+  # Falls back silently to a local build (or your linux-builder VM) if
+  # the cache is unreachable or the user does not opt in.
+  #
+  # Maintainer note: the public key below is a placeholder and must be
+  # filled in once the `nixtheplanet` cache is created on cachix.org.
+  # The cache itself is populated by .github/workflows/build-images.yml.
+  nixConfig = {
+    extra-substituters = [
+      "https://nixtheplanet.cachix.org"
+    ];
+    extra-trusted-public-keys = [
+      # TODO: replace after `cachix create nixtheplanet`. Cachix prints
+      # the public key on creation. Format is
+      # `nixtheplanet.cachix.org-1:<base64>=`.
+      "nixtheplanet.cachix.org-1:REPLACE_ME_AFTER_CACHE_CREATED="
+    ];
+  };
+
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";

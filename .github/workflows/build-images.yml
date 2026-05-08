@@ -1,0 +1,119 @@
+name: Build images
+
+# Builds the four DOS/Windows .img derivations on x86_64-linux and
+# aarch64-linux and pushes them to a Cachix binary cache. macOS users
+# whose nix trusts that cache as a substituter can then download the
+# .img instead of running a local linux-builder VM to build it.
+#
+# Legal note: the resulting .img contains unlicensed Microsoft binaries
+# (MS-DOS 6.22, Windows 3.0, Windows for Workgroups 3.11, Windows 98).
+# Pushing those to a public cache is something we do not encourage and
+# is on the maintainer who runs this workflow. The workflow is gated on
+# the CACHIX_AUTH_TOKEN secret being set, so it does not run on forks
+# by default.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+  schedule:
+    # Nightly at 04:17 UTC. Off-peak so we are not fighting other CI
+    # for runners. The OCR install is flaky enough that a daily build
+    # is also a passive repeatability check.
+    - cron: '17 4 * * *'
+
+# Cancel in-progress runs on the same ref when a new commit lands so we
+# do not waste runner-minutes on stale work.
+concurrency:
+  group: build-images-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Skip on forks that do not have the secret. The action will still
+    # be visible in the Actions tab, just no-op'd, which is the
+    # behavior we want.
+    if: github.repository == 'pacnpal/NixThePlanet'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+            image: msdos622
+            timeout: 30
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+            image: win30
+            timeout: 30
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+            image: wfwg311
+            timeout: 45
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+            image: win98
+            timeout: 90
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+            image: msdos622
+            timeout: 30
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+            image: win30
+            timeout: 30
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+            image: wfwg311
+            timeout: 45
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+            image: win98
+            timeout: 90
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ matrix.timeout }}
+    name: ${{ matrix.image }} (${{ matrix.system }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: nixtheplanet
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+
+      - name: Build ${{ matrix.image }}-image (with retry)
+        # The OCR-driven install is flaky. Retry up to twice before
+        # giving up. Each attempt is logged separately so a partial
+        # success is visible in the run UI.
+        env:
+          ATTR: .#packages.${{ matrix.system }}.${{ matrix.image }}-image
+        run: |
+          set -u
+          attempt=1
+          max_attempts=3
+          while [ "$attempt" -le "$max_attempts" ]; do
+            echo "::group::Attempt ${attempt}/${max_attempts}: nix build $ATTR"
+            if nix build "$ATTR" --print-out-paths --print-build-logs; then
+              echo "::endgroup::"
+              echo "Build succeeded on attempt ${attempt}."
+              exit 0
+            fi
+            rc=$?
+            echo "::endgroup::"
+            echo "Attempt ${attempt} failed with exit ${rc}."
+            attempt=$((attempt + 1))
+            # Brief pause before retry so transient network blips clear.
+            sleep 5
+          done
+          echo "All ${max_attempts} attempts failed."
+          exit 1

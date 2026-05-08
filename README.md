@@ -130,13 +130,57 @@ The Windows/DOS apps (`msdos622`, `win30`, `wfwg311`, `win98`) run natively on
 no emulation layer is needed at runtime.
 
 The image-build derivations themselves still rely on Linux-only tooling
-(`xvfb-run`, `x11vnc`, expect-driven VNC + tesseract OCR), so the build is
-transparently offloaded to a Linux remote builder matching your host arch
-(`aarch64-darwin` → `aarch64-linux`, `x86_64-darwin` → `x86_64-linux`). The
-runScript that wraps the resulting `.img` is constructed natively for darwin.
+(`xvfb-run`, `x11vnc`, expect-driven VNC + tesseract OCR), so on darwin they
+are constructed against a matching-arch Linux nixpkgs (`aarch64-darwin` →
+`aarch64-linux`, `x86_64-darwin` → `x86_64-linux`). You have two ways to make
+that work:
 
-The `macos-ventura` output is **not** available on darwin hosts (it requires
-KVM, which is Linux-only).
+1. Trust the `nixtheplanet` Cachix substituter and skip the build entirely.
+   The `.img` is downloaded prebuilt. See "Prebuilt images" below.
+2. Run a Linux remote builder VM yourself, which actually builds the image.
+   See "Quick setup: linux-builder VM" below.
+
+The runScript that wraps the resulting `.img` is constructed natively for
+darwin in both cases. The `macos-ventura` output is **not** available on
+darwin hosts (it requires KVM, which is Linux-only).
+
+## Prebuilt images (Cachix)
+
+CI builds `msdos622-image`, `win30-image`, `wfwg311-image`, and `win98-image`
+for both `x86_64-linux` and `aarch64-linux` and pushes the results to the
+`nixtheplanet` Cachix cache. If your nix trusts that cache as a substituter,
+`nix run github:pacnpal/NixThePlanet#win98` on macOS will fetch the prebuilt
+`.img` from the cache instead of building it locally. No linux-builder VM
+required.
+
+The flake declares the cache via `nixConfig`, so the easiest opt-in is:
+
+```bash
+nix run --accept-flake-config github:pacnpal/NixThePlanet#win98
+```
+
+Or, to make it permanent, add the substituter to your `nix.conf`
+(`/etc/nix/nix.conf` on multi-user installs, `~/.config/nix/nix.conf` on
+single-user):
+
+```
+extra-substituters = https://nixtheplanet.cachix.org
+extra-trusted-public-keys = nixtheplanet.cachix.org-1:REPLACE_ME_AFTER_CACHE_CREATED=
+```
+
+Reload `nix-daemon` after editing the system `nix.conf`
+(`sudo launchctl kickstart -k system/org.nixos.nix-daemon` on macOS).
+
+If the substituter is unreachable or you do not opt in, nix falls back to
+building locally, which on darwin needs the linux-builder VM described in the
+next section.
+
+### Legal note
+
+The `.img` outputs contain unlicensed Microsoft binaries (MS-DOS 6.22, Windows
+3.0, Windows for Workgroups 3.11, Windows 98). Distributing those is at best
+in a gray area. We provide the cache for convenience; whether you use it,
+mirror it, or rebuild from your own retail media is your call.
 
 ## Quick setup: linux-builder VM
 
