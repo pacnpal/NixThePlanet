@@ -1,0 +1,150 @@
+name: Build images
+
+# Builds the four DOS/Windows .img derivations on x86_64-linux and
+# aarch64-linux and pushes them to a Cachix binary cache. macOS users
+# whose nix trusts that cache as a substituter can then download the
+# .img instead of running a local linux-builder VM to build it.
+#
+# Legal note: the resulting .img contains unlicensed Microsoft binaries
+# (MS-DOS 6.22, Windows 3.0, Windows for Workgroups 3.11, Windows 98).
+# Pushing those to a public cache is something we do not encourage and
+# is on the maintainer who runs this workflow. The workflow no-ops on
+# forks and until both Cachix secrets are configured.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+  schedule:
+    # Nightly at 04:17 UTC. Off-peak so we are not fighting other CI
+    # for runners. The OCR install is flaky enough that a daily build
+    # is also a passive repeatability check.
+    - cron: '17 4 * * *'
+
+# Cancel in-progress runs on the same ref when a new commit lands so we
+# do not waste runner-minutes on stale work.
+concurrency:
+  group: build-images-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Keep the workflow visible in Actions, but no-op outside the main
+    # repo and until both Cachix secrets exist.
+    if: github.repository == 'pacnpal/NixThePlanet'
+    strategy:
+      fail-fast: false
+      matrix:
+        # `attempt_timeout` is the per-attempt budget. The job timeout
+        # below multiplies it by max_attempts so a slow first attempt
+        # does not eat the budget and starve the retries.
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+            image: msdos622
+            attempt_timeout: 30
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+            image: win30
+            attempt_timeout: 30
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+            image: wfwg311
+            attempt_timeout: 30
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+            image: win98
+            attempt_timeout: 60
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+            image: msdos622
+            attempt_timeout: 30
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+            image: win30
+            attempt_timeout: 30
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+            image: wfwg311
+            attempt_timeout: 30
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+            image: win98
+            attempt_timeout: 60
+    runs-on: ${{ matrix.runner }}
+    # 3 attempts at the per-attempt budget, plus 5 min for checkout,
+    # nix install, and cachix setup. Keeps the job from being killed
+    # mid-retry while a hung single attempt still gets capped below.
+    timeout-minutes: ${{ matrix.attempt_timeout * 3 + 5 }}
+    name: ${{ matrix.image }} (${{ matrix.system }})
+    steps:
+      - name: Check Cachix configuration
+        id: cachix
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.CACHIX_AUTH_TOKEN }}" ] && [ -n "${{ secrets.CACHIX_SIGNING_KEY }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Cachix secrets are not configured; skipping image builds."
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.cachix.outputs.enabled == 'true'
+
+      - uses: cachix/install-nix-action@v31
+        if: steps.cachix.outputs.enabled == 'true'
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - uses: cachix/cachix-action@v17
+        if: steps.cachix.outputs.enabled == 'true'
+        with:
+          name: nixtheplanet
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+
+      - name: Build ${{ matrix.image }}-image (with retry)
+        if: steps.cachix.outputs.enabled == 'true'
+        # The OCR-driven install is flaky. Retry up to twice before
+        # giving up. Each attempt is logged separately so a partial
+        # success is visible in the run UI.
+        env:
+          ATTR: .#packages.${{ matrix.system }}.${{ matrix.image }}-image
+          ATTEMPT_TIMEOUT_MINUTES: ${{ matrix.attempt_timeout }}
+        run: |
+          set -u
+          attempt=1
+          max_attempts=3
+          while [ "$attempt" -le "$max_attempts" ]; do
+            echo "::group::Attempt ${attempt}/${max_attempts}: nix build $ATTR"
+            # Run without `set -e` semantics so we can capture the
+            # real exit code. `if cmd; then ... fi` always leaves $? = 0
+            # in the no-else branch, which masked failures previously.
+            # `timeout` caps a single hung attempt so the remaining
+            # attempts still have time to run within the job budget.
+            rc=0
+            timeout "${ATTEMPT_TIMEOUT_MINUTES}m" \
+              nix build "$ATTR" --print-out-paths --print-build-logs \
+              || rc=$?
+            echo "::endgroup::"
+            if [ "$rc" -eq 0 ]; then
+              echo "Build succeeded on attempt ${attempt}."
+              exit 0
+            fi
+            if [ "$rc" -eq 124 ]; then
+              echo "Attempt ${attempt} hit the ${ATTEMPT_TIMEOUT_MINUTES}m per-attempt timeout."
+            else
+              echo "Attempt ${attempt} failed with exit ${rc}."
+            fi
+            attempt=$((attempt + 1))
+            # Brief pause before retry so transient network blips clear.
+            sleep 5
+          done
+          echo "All ${max_attempts} attempts failed."
+          exit 1
