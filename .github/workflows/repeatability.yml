@@ -29,6 +29,11 @@ jobs:
         include:
           # Only the cheapest two images are worth doing 100x of in
           # CI. wfwg311 and win98 would blow the 6h runner limit.
+          #
+          # NB: "msDos622" (capital D) here matches the flake's
+          # msDos622-repeatability-test attribute name; build-images.yml
+          # uses the all-lowercase "msdos622" for msdos622-image. The
+          # casing split is intentional, mirroring the flake.
           - system: x86_64-linux
             runner: ubuntu-24.04
             image: msDos622
@@ -74,7 +79,10 @@ jobs:
         with:
           name: nixtheplanet
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
+          # Pull-only: each run realizes 100 distinct store paths per
+          # cell, and pushing them all would chew through the small OSS
+          # quota for an output that has no value as a substituter hit.
+          skipPush: true
 
       - name: Build and compare ${{ matrix.image }}-repeatability-test
         if: steps.cachix.outputs.enabled == 'true'

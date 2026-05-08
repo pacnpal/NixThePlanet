@@ -3,8 +3,9 @@
   # nix.conf (or `--accept-flake-config` on the command line, or your
   # user listed in `trusted-users`), Nix will pull prebuilt .img
   # outputs from this Cachix cache instead of building them locally.
-  # Falls back silently to a local build (or your linux-builder VM) if
-  # the cache is unreachable or the user does not opt in.
+  # If the cache is unreachable or the user does not opt in, Nix
+  # prints a warning and falls back to a local build (or your
+  # linux-builder VM).
   #
   # Maintainer note: `extra-trusted-public-keys` is intentionally
   # omitted until the `nixtheplanet` cache exists and a real Cachix
