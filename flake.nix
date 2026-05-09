@@ -2,19 +2,20 @@
   # Optional binary-cache hint. With `accept-flake-config = true` in
   # nix.conf (or `--accept-flake-config` on the command line, or your
   # user listed in `trusted-users`), Nix will pull prebuilt .img
-  # outputs from this Cachix cache instead of building them locally.
-  # If the cache is unreachable or the user does not opt in, Nix
-  # prints a warning and falls back to a local build (or your
+  # outputs from the garnix public cache instead of building them
+  # locally. If the cache is unreachable or the user does not opt in,
+  # Nix prints a warning and falls back to a local build (or your
   # linux-builder VM).
   #
-  # Maintainer note: `extra-trusted-public-keys` is intentionally
-  # omitted until the `nixtheplanet` cache exists and a real Cachix
-  # public key can be recorded here. Until then, opting into the flake
-  # config only adds the substituter URL and Nix falls back to a local
-  # build if it cannot trust the cache.
+  # Builds are produced by garnix CI (see garnix.yaml) and pushed to
+  # cache.garnix.io. The public key below is the stable garnix cache
+  # signing key, copied from https://garnix.io/docs/ci/caching/.
   nixConfig = {
     extra-substituters = [
-      "https://nixtheplanet.cachix.org"
+      "https://cache.garnix.io"
+    ];
+    extra-trusted-public-keys = [
+      "cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g="
     ];
   };
 

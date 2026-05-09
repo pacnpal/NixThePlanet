@@ -1,0 +1,14 @@
+builds:
+  include:
+    - 'packages.x86_64-linux.msdos622-image'
+    - 'packages.x86_64-linux.win30-image'
+    - 'packages.x86_64-linux.wfwg311-image'
+    - 'packages.x86_64-linux.win98-image'
+    - 'packages.aarch64-linux.msdos622-image'
+    - 'packages.aarch64-linux.win30-image'
+    - 'packages.aarch64-linux.wfwg311-image'
+    - 'packages.aarch64-linux.win98-image'
+  exclude:
+    - 'packages.*.macos-ventura-image'
+    - 'packages.*.*-repeatability-test'
+  branch: master
