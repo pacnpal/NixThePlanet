@@ -135,7 +135,7 @@ are constructed against a matching-arch Linux nixpkgs (`aarch64-darwin` →
 `aarch64-linux`, `x86_64-darwin` → `x86_64-linux`). You have two ways to make
 that work:
 
-1. Trust the `nixtheplanet` Cachix substituter and skip the build entirely.
+1. Trust the `cache.garnix.io` substituter and skip the build entirely.
    The `.img` is downloaded prebuilt. See "Prebuilt images" below.
 2. Run a Linux remote builder VM yourself, which actually builds the image.
    See "Quick setup: linux-builder VM" below.
@@ -144,33 +144,29 @@ The runScript that wraps the resulting `.img` is constructed natively for
 darwin in both cases. The `macos-ventura` output is **not** available on
 darwin hosts (it requires KVM, which is Linux-only).
 
-## Prebuilt images (Cachix)
+## Prebuilt images (garnix)
 
-CI builds `msdos622-image`, `win30-image`, `wfwg311-image`, and `win98-image`
-for both `x86_64-linux` and `aarch64-linux` and pushes the results to the
-`nixtheplanet` Cachix cache. If your nix trusts that cache as a substituter,
+CI runs on [garnix.io](https://garnix.io) and builds `msdos622-image`,
+`win30-image`, `wfwg311-image`, and `win98-image` for both `x86_64-linux` and
+`aarch64-linux`. Successful builds are pushed to the public garnix cache
+(`cache.garnix.io`). If your nix trusts that cache as a substituter,
 `nix run github:pacnpal/NixThePlanet#win98` on macOS will fetch the prebuilt
-`.img` from the cache instead of building it locally. No linux-builder VM
-required.
+`.img` instead of building it locally. No linux-builder VM required.
 
-The flake declares the cache via `nixConfig`, so the easiest opt-in is:
+The flake declares the cache and its public key via `nixConfig`, so the
+easiest opt-in is `--accept-flake-config`:
 
 ```bash
 nix run --accept-flake-config github:pacnpal/NixThePlanet#win98
 ```
-
-Until the maintainer fills in the real Cachix public key in `flake.nix`,
-that command only opts into the substituter URL; nix will still fall back
-to the local/linux-builder path unless you add the real public key manually.
 
 Or, to make it permanent, add the substituter to your `nix.conf`
 (`/etc/nix/nix.conf` on multi-user installs, `~/.config/nix/nix.conf` on
 single-user):
 
 ```ini
-extra-substituters = https://nixtheplanet.cachix.org
-# replace after `cachix create nixtheplanet`
-extra-trusted-public-keys = nixtheplanet.cachix.org-1:REPLACE_ME_AFTER_CACHE_CREATED=
+extra-substituters       = https://cache.garnix.io
+extra-trusted-public-keys = cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=
 ```
 
 Reload `nix-daemon` after editing the system `nix.conf`
@@ -179,6 +175,33 @@ Reload `nix-daemon` after editing the system `nix.conf`
 If the substituter is unreachable or you do not opt in, nix falls back to
 building locally, which on darwin needs the linux-builder VM described in the
 next section.
+
+### Verify a build is cached, not built
+
+```bash
+# Should print copying-from messages, no `building '...'` lines
+nix build --accept-flake-config \
+  github:pacnpal/NixThePlanet#packages.x86_64-linux.win98-image \
+  --no-link --print-out-paths -L
+
+# Direct probe of the substituter for the resolved store path
+nix path-info --store https://cache.garnix.io \
+  $(nix eval --raw --accept-flake-config \
+    github:pacnpal/NixThePlanet#packages.x86_64-linux.win98-image.outPath)
+```
+
+A non-empty result from `path-info` confirms garnix has the path. The same
+pattern works for `aarch64-linux` and the other three image attrs.
+
+### When the cache rebuilds
+
+Garnix re-runs only when the derivation hash changes — i.e. when `flake.lock`
+is bumped, when files under `make*Image/` change, or when `flake.nix` changes
+in a way that affects these packages. A casual push that doesn't touch any of
+those is a no-op. Treat `flake.lock` bumps like releases: bump deliberately,
+wait for the garnix run to go green, then push, since a rebuild that fails
+the OCR-driven win98 install will leave that derivation hash uncached until
+the next successful run.
 
 ### Legal note
 
